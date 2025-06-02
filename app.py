@@ -38,12 +38,15 @@ def combine_clothing():
         upper_img = Image.open(BytesIO(upper_response.content)).convert('RGBA')
         lower_img = Image.open(BytesIO(lower_response.content)).convert('RGBA')
         
-        print(f"Upper image size: {upper_img.size}")
-        print(f"Lower image size: {lower_img.size}")
+        print(f"Original upper image size: {upper_img.size}")
+        print(f"Original lower image size: {lower_img.size}")
         
-        # ГОРИЗОНТАЛЬНОЕ ОБЪЕДИНЕНИЕ
-        # Создаем белый фон (ширина = сумма ширин, высота = максимальная высота)
-        target_height = 400  # Стандартная высота для обеих частей
+        # ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ ВЫСОКОГО КАЧЕСТВА
+        
+        # Устанавливаем минимальные размеры для соответствия требованиям Kling AI
+        min_total_width = 600   # Минимальная ширина итогового изображения
+        min_total_height = 400  # Минимальная высота итогового изображения
+        target_height = 500     # Увеличили целевую высоту для лучшего качества
         
         # Изменяем размер изображений, сохраняя пропорции
         upper_ratio = target_height / upper_img.height
@@ -54,18 +57,40 @@ def combine_clothing():
         lower_new_width = int(lower_img.width * lower_ratio)
         lower_resized = lower_img.resize((lower_new_width, target_height), Image.Resampling.LANCZOS)
         
-        # Рассчитываем общие размеры canvas
-        canvas_width = upper_new_width + lower_new_width + 20  # +20 для небольшого отступа между изображениями
+        # Рассчитываем размеры canvas
+        spacing = 30  # Отступ между изображениями
+        canvas_width = upper_new_width + lower_new_width + spacing + 40  # +40 для боковых отступов
         canvas_height = target_height + 100  # +100 для отступов сверху и снизу
+        
+        # ВАЖНО: Убеждаемся что размер не меньше минимального
+        if canvas_width < min_total_width:
+            # Увеличиваем пропорционально
+            scale_factor = min_total_width / canvas_width
+            canvas_width = min_total_width
+            canvas_height = int(canvas_height * scale_factor)
+            target_height = int(target_height * scale_factor)
+            
+            # Пересчитываем размеры изображений
+            upper_resized = upper_img.resize((int(upper_new_width * scale_factor), target_height), Image.Resampling.LANCZOS)
+            lower_resized = lower_img.resize((int(lower_new_width * scale_factor), target_height), Image.Resampling.LANCZOS)
+            upper_new_width = int(upper_new_width * scale_factor)
+            lower_new_width = int(lower_new_width * scale_factor)
+        
+        if canvas_height < min_total_height:
+            canvas_height = min_total_height
+        
+        print(f"Final canvas size: {canvas_width}x{canvas_height}")
+        print(f"Upper resized: {upper_resized.size}")
+        print(f"Lower resized: {lower_resized.size}")
         
         # Создаем белый canvas
         combined = Image.new('RGB', (canvas_width, canvas_height), (255, 255, 255))
         
         # Позиционируем изображения горизонтально
-        upper_x = 10  # Отступ слева
+        upper_x = 20  # Отступ слева
         upper_y = (canvas_height - target_height) // 2  # Центрируем по вертикали
         
-        lower_x = upper_new_width + 20  # После верхней одежды + отступ
+        lower_x = upper_new_width + spacing + 20  # После верхней одежды + отступ
         lower_y = (canvas_height - target_height) // 2  # Центрируем по вертикали
         
         # Вставляем изображения
@@ -79,13 +104,8 @@ def combine_clothing():
         else:
             combined.paste(lower_resized, (lower_x, lower_y))
         
-        # Оптимизируем размер для Kling AI (максимум 512px по ширине)
-        if canvas_width > 512:
-            resize_ratio = 512 / canvas_width
-            new_height = int(canvas_height * resize_ratio)
-            combined = combined.resize((512, new_height), Image.Resampling.LANCZOS)
-            canvas_width = 512
-            canvas_height = new_height
+        # УБИРАЕМ ПРИНУДИТЕЛЬНОЕ УМЕНЬШЕНИЕ ДО 512px!
+        # НЕ ДЕЛАЕМ resize если изображение больше 512px
         
         # Конвертируем в base64
         buffer = BytesIO()
@@ -93,18 +113,26 @@ def combine_clothing():
         combined_base64 = base64.b64encode(buffer.getvalue()).decode()
         
         print(f"Combined image created successfully")
-        print(f"Final size: {canvas_width}x{canvas_height}")
+        print(f"Final size: {combined.size}")
         print(f"Base64 length: {len(combined_base64)} characters")
+        
+        # Проверяем что размер соответствует требованиям
+        if combined.width < 300 or combined.height < 300:
+            return jsonify({
+                'success': False,
+                'error': f'Generated image is too small: {combined.width}x{combined.height}. Minimum required: 300x300'
+            }), 400
         
         return jsonify({
             'success': True,
             'combined_image_base64': combined_base64,
             'combined_image_url': f"data:image/jpeg;base64,{combined_base64}",
-            'canvas_size': f"{canvas_width}x{canvas_height}",
+            'canvas_size': f"{combined.width}x{combined.height}",
             'layout': 'horizontal',
             'upper_position': f"{upper_x},{upper_y}",
             'lower_position': f"{lower_x},{lower_y}",
-            'arrangement': 'left: upper clothing, right: lower clothing'
+            'arrangement': 'left: upper clothing, right: lower clothing',
+            'quality_info': f'High quality: {combined.width}x{combined.height}px'
         })
         
     except requests.RequestException as e:
