@@ -41,34 +41,34 @@ def combine_clothing():
         print(f"Upper image size: {upper_img.size}")
         print(f"Lower image size: {lower_img.size}")
         
-        # Создаем белый фон 512x768 (оптимальный размер для Kling AI)
-        canvas_width = 512
-        canvas_height = 768
+        # ГОРИЗОНТАЛЬНОЕ ОБЪЕДИНЕНИЕ
+        # Создаем белый фон (ширина = сумма ширин, высота = максимальная высота)
+        target_height = 400  # Стандартная высота для обеих частей
+        
+        # Изменяем размер изображений, сохраняя пропорции
+        upper_ratio = target_height / upper_img.height
+        upper_new_width = int(upper_img.width * upper_ratio)
+        upper_resized = upper_img.resize((upper_new_width, target_height), Image.Resampling.LANCZOS)
+        
+        lower_ratio = target_height / lower_img.height  
+        lower_new_width = int(lower_img.width * lower_ratio)
+        lower_resized = lower_img.resize((lower_new_width, target_height), Image.Resampling.LANCZOS)
+        
+        # Рассчитываем общие размеры canvas
+        canvas_width = upper_new_width + lower_new_width + 20  # +20 для небольшого отступа между изображениями
+        canvas_height = target_height + 100  # +100 для отступов сверху и снизу
+        
+        # Создаем белый canvas
         combined = Image.new('RGB', (canvas_width, canvas_height), (255, 255, 255))
         
-        # Рассчитываем размеры для размещения
-        upper_target_height = 300
-        lower_target_height = 300
+        # Позиционируем изображения горизонтально
+        upper_x = 10  # Отступ слева
+        upper_y = (canvas_height - target_height) // 2  # Центрируем по вертикали
         
-        # Изменяем размер верхней одежды (сохраняем пропорции)
-        upper_ratio = upper_target_height / upper_img.height
-        upper_new_width = int(upper_img.width * upper_ratio)
-        upper_resized = upper_img.resize((upper_new_width, upper_target_height), Image.Resampling.LANCZOS)
+        lower_x = upper_new_width + 20  # После верхней одежды + отступ
+        lower_y = (canvas_height - target_height) // 2  # Центрируем по вертикали
         
-        # Изменяем размер нижней одежды
-        lower_ratio = lower_target_height / lower_img.height
-        lower_new_width = int(lower_img.width * lower_ratio)
-        lower_resized = lower_img.resize((lower_new_width, lower_target_height), Image.Resampling.LANCZOS)
-        
-        # Центрируем изображения по горизонтали
-        upper_x = (canvas_width - upper_new_width) // 2
-        lower_x = (canvas_width - lower_new_width) // 2
-        
-        # Размещаем на canvas
-        upper_y = 50  # Отступ сверху
-        lower_y = canvas_height - lower_target_height - 50  # Отступ снизу
-        
-        # Вставляем изображения (обрабатываем прозрачность)
+        # Вставляем изображения
         if upper_resized.mode == 'RGBA':
             combined.paste(upper_resized, (upper_x, upper_y), upper_resized)
         else:
@@ -79,20 +79,32 @@ def combine_clothing():
         else:
             combined.paste(lower_resized, (lower_x, lower_y))
         
+        # Оптимизируем размер для Kling AI (максимум 512px по ширине)
+        if canvas_width > 512:
+            resize_ratio = 512 / canvas_width
+            new_height = int(canvas_height * resize_ratio)
+            combined = combined.resize((512, new_height), Image.Resampling.LANCZOS)
+            canvas_width = 512
+            canvas_height = new_height
+        
         # Конвертируем в base64
         buffer = BytesIO()
         combined.save(buffer, format='JPEG', quality=95, optimize=True)
         combined_base64 = base64.b64encode(buffer.getvalue()).decode()
         
-        print(f"Combined image created successfully, size: {len(combined_base64)} characters")
+        print(f"Combined image created successfully")
+        print(f"Final size: {canvas_width}x{canvas_height}")
+        print(f"Base64 length: {len(combined_base64)} characters")
         
         return jsonify({
             'success': True,
             'combined_image_base64': combined_base64,
             'combined_image_url': f"data:image/jpeg;base64,{combined_base64}",
             'canvas_size': f"{canvas_width}x{canvas_height}",
+            'layout': 'horizontal',
             'upper_position': f"{upper_x},{upper_y}",
-            'lower_position': f"{lower_x},{lower_y}"
+            'lower_position': f"{lower_x},{lower_y}",
+            'arrangement': 'left: upper clothing, right: lower clothing'
         })
         
     except requests.RequestException as e:
